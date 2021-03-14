@@ -117,6 +117,26 @@ local function dispatch_by_session(self)
 	end
 end
 
+-- close connection immediately when closed by peer
+local function connection_autoclose(self)
+	local s = self.__sock
+	if s then
+		local f = s._autoclose
+		if not f then
+			f = function()
+				if s == self.__sock	-- __sock may changes after fork
+					and not socket.block(s[1])	-- wait for socket input
+					and self.__wait_response
+					and s == self.__sock then
+					close_channel_socket(self)
+				end
+			end
+			s._autoclose = f
+		end
+		skynet.fork(f)
+	end
+end
+
 local function pop_response(self)
 	while true do
 		local func,co = table.remove(self.__request, 1), table.remove(self.__thread, 1)
@@ -124,6 +144,7 @@ local function pop_response(self)
 			return func, co
 		end
 		self.__wait_response = coroutine.running()
+		connection_autoclose(self)
 		skynet.wait(self.__wait_response)
 	end
 end
